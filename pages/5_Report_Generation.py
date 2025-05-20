@@ -35,6 +35,13 @@ if 'conclusion' not in st.session_state:
     st.session_state.conclusion = ""
 if 'evaluation' not in st.session_state:
     st.session_state.evaluation = ""
+if 'references_list' not in st.session_state:
+    st.session_state.references_list = []
+if 'citation_style' not in st.session_state:
+    st.session_state.citation_style = "APA"
+if 'references_text' not in st.session_state: # To store raw text area content
+    st.session_state.references_text = ""
+
 
 # Section 1: Report Information
 st.subheader("Report Information")
@@ -111,8 +118,8 @@ with st.expander("View IB Chemistry IA Assessment Criteria"):
     """)
 
 # Report template selections
-report_tab1, report_tab2, report_tab3, report_tab4, report_tab5 = st.tabs([
-    "Introduction", "Methodology", "Results", "Conclusion", "Evaluation"
+report_tab1, report_tab2, report_tab3, report_tab4, report_tab5, report_tab6 = st.tabs([
+    "Introduction", "Methodology", "Results", "Conclusion", "Evaluation", "References"
 ])
 
 # Tab 1: Introduction
@@ -378,11 +385,113 @@ with report_tab5:
     word_count = len(st.session_state.evaluation.split())
     st.markdown(f"Word count: {word_count} words")
 
+# Tab 6: References
+with report_tab6:
+    st.markdown("### References")
+    st.markdown("Enter each reference on a new line. Ensure consistent formatting according to your chosen style.")
+    
+    st.session_state.references_text = st.text_area(
+        "List of References",
+        value=st.session_state.references_text,
+        height=200,
+        help="Enter each reference on a new line."
+    )
+    # Update references_list based on text_area input
+    if st.session_state.references_text:
+        st.session_state.references_list = [ref.strip() for ref in st.session_state.references_text.split("\n") if ref.strip()]
+    else:
+        st.session_state.references_list = []
+
+    st.session_state.citation_style = st.selectbox(
+        "Select Citation Style",
+        options=["APA", "MLA", "Chicago"],
+        index=["APA", "MLA", "Chicago"].index(st.session_state.citation_style) # Set current style
+    )
+    st.markdown(f"You have chosen **{st.session_state.citation_style}** style. Please format your references accordingly above.")
+    # Note: Actual formatting according to APA/MLA/Chicago is not automatically applied by this tool;
+    # the user is responsible for formatting the references correctly in the text area.
+    # The selected style is for documentation purposes in the generated report.
+
 # Total word count
 total_words = len(st.session_state.introduction.split()) + len(st.session_state.conclusion.split()) + len(st.session_state.evaluation.split())
 st.session_state.word_count = total_words
 
-st.markdown(f"**Total Word Count:** {total_words} words")
+st.markdown(f"**Total Word Count:** {total_words} words (excluding references, methodology, and raw data)")
+
+
+# --- Report Generation and Export ---
+st.subheader("Generate and Export Report")
+
+col_pdf, col_md = st.columns(2)
+
+with col_pdf:
+    if st.button("Generate IA Report (PDF)"):
+        # Check if essential sections are completed
+        if not st.session_state.student_name:
+            st.error("Please enter your name before generating the report.")
+        elif not st.session_state.title:
+            st.error("Please enter a title for your IA before generating the report.")
+        elif not st.session_state.introduction:
+            st.error("Please write an introduction before generating the report.")
+        elif 'data_df' not in st.session_state or st.session_state.data_df.empty:
+            st.error("Please add data in the Data Analysis section before generating the report.")
+        elif not st.session_state.conclusion:
+            st.error("Please write a conclusion before generating the report.")
+        else:
+            try:
+                # Create a dictionary with all report data
+                report_data = {
+                    "student_name": st.session_state.student_name,
+                    "candidate_number": st.session_state.candidate_number,
+                    "school_name": st.session_state.school_name,
+                    "teacher_name": st.session_state.teacher_name,
+                    "experiment_date": st.session_state.experiment_date.strftime('%Y-%m-%d') if isinstance(st.session_state.experiment_date, datetime) else st.session_state.experiment_date,
+                    "title": st.session_state.title,
+                    "word_count": st.session_state.word_count,
+                    "introduction": st.session_state.introduction,
+                    "methodology": st.session_state.get('methodology', ""), # Use .get for safety
+                    "materials": st.session_state.get('materials', []),
+                    "independent_var": st.session_state.get('independent_var', ""),
+                    "dependent_var": st.session_state.get('dependent_var', ""),
+                    "controlled_vars": st.session_state.get('controlled_vars', []),
+                    "safety_considerations": st.session_state.get('safety_considerations', ""),
+                    "hypothesis": st.session_state.get('hypothesis', ""),
+                    "data_df": st.session_state.get('data_df', pd.DataFrame()), # Pass dataframe directly
+                    "results_visualization": st.session_state.get('results_visualization', {}), # For plot regeneration
+                    "conclusion": st.session_state.conclusion,
+                    "evaluation": st.session_state.evaluation,
+                    "random_errors": st.session_state.get('random_errors', []),
+                    "systematic_errors": st.session_state.get('systematic_errors', []),
+                    "references_list": st.session_state.get('references_list', []),
+                    "citation_style": st.session_state.get('citation_style', "APA")
+                }
+                
+                # Generate PDF report
+                pdf_bytes = generate_pdf_report(report_data)
+                
+                # Create a download button for the PDF
+                b64_pdf = base64.b64encode(pdf_bytes).decode()
+                pdf_filename = f"{st.session_state.student_name.replace(' ', '_')}_Chemistry_IA.pdf"
+                href = f'<a href="data:application/pdf;base64,{b64_pdf}" download="{pdf_filename}">Download PDF Report</a>'
+                st.markdown(href, unsafe_allow_html=True)
+                
+                st.success("IA report generated successfully!")
+                
+                # Also allow downloading the report data as JSON for future use
+                # Convert dataframe to dict for JSON serialization
+                report_data_json = report_data.copy()
+                if isinstance(report_data_json['data_df'], pd.DataFrame):
+                    report_data_json['data_df'] = report_data_json['data_df'].to_dict(orient='list')
+
+                report_json_str = json.dumps(report_data_json, indent=2)
+                b64_json = base64.b64encode(report_json_str.encode()).decode()
+                json_filename = f"{st.session_state.student_name.replace(' ', '_')}_Chemistry_IA_Data.json"
+                href_json = f'<a href="data:application/json;base64,{b64_json}" download="{json_filename}">Download Report Data (JSON)</a>'
+                st.markdown(href_json, unsafe_allow_html=True)
+                
+            except Exception as e:
+                st.error(f"Error generating PDF report: {e}")
+                st.exception(e) # show full traceback for debugging
 
 # Generate Report Button
 if st.button("Generate IA Report"):
@@ -399,46 +508,176 @@ if st.button("Generate IA Report"):
         st.error("Please write a conclusion before generating the report.")
     else:
         try:
-            # Create a dictionary with all report data
-            report_data = {
-                "student_name": st.session_state.student_name,
-                "candidate_number": st.session_state.candidate_number,
-                "school_name": st.session_state.school_name,
-                "teacher_name": st.session_state.teacher_name,
-                "experiment_date": st.session_state.experiment_date.strftime('%Y-%m-%d') if isinstance(st.session_state.experiment_date, datetime) else st.session_state.experiment_date,
-                "title": st.session_state.title,
-                "word_count": st.session_state.word_count,
-                "introduction": st.session_state.introduction,
-                "methodology": st.session_state.methodology if 'methodology' in st.session_state else "",
-                "materials": st.session_state.materials if 'materials' in st.session_state else [],
-                "independent_var": st.session_state.independent_var if 'independent_var' in st.session_state else "",
-                "dependent_var": st.session_state.dependent_var if 'dependent_var' in st.session_state else "",
-                "controlled_vars": st.session_state.controlled_vars if 'controlled_vars' in st.session_state else [],
-                "hypothesis": st.session_state.hypothesis if 'hypothesis' in st.session_state else "",
-                "data": st.session_state.data_df.to_dict() if 'data_df' in st.session_state else {},
-                "conclusion": st.session_state.conclusion,
-                "evaluation": st.session_state.evaluation,
-                "random_errors": st.session_state.random_errors if 'random_errors' in st.session_state else [],
-                "systematic_errors": st.session_state.systematic_errors if 'systematic_errors' in st.session_state else []
-            }
+# Placeholder for Markdown generation logic, will be filled in next step
+def generate_markdown_report(report_data):
+    """
+    Generates a Markdown string representation of the IA report.
+
+    Args:
+        report_data (dict): A dictionary containing all the necessary data
+                            for the report, mirroring the structure used for PDF generation.
+                            Includes sections like title, student_name, introduction,
+                            methodology, data (as DataFrame), conclusion, evaluation,
+                            references, etc.
+
+    Returns:
+        str: A string formatted in Markdown containing the entire report content.
+    """
+    md_content = []
+    md_content.append(f"# {report_data.get('title', 'Untitled Report')}")
+    
+    # Basic Information
+    md_content.append(f"**Student:** {report_data.get('student_name', 'N/A')}")
+    if report_data.get('candidate_number'):
+        md_content.append(f"**Candidate Number:** {report_data.get('candidate_number')}")
+    md_content.append(f"**School:** {report_data.get('school_name', 'N/A')}")
+    if report_data.get('teacher_name'):
+        md_content.append(f"**Teacher:** {report_data.get('teacher_name')}")
+    md_content.append(f"**Experiment Date:** {report_data.get('experiment_date', 'N/A')}")
+    md_content.append(f"**Word Count (main sections):** {report_data.get('word_count', 0)}")
+
+    # Introduction
+    md_content.append("\n## Introduction")
+    md_content.append(f"**Research Question (from title):** {report_data.get('title', 'N/A')}") # Assuming title is RQ
+    md_content.append(f"**Hypothesis (Scientific):** {report_data.get('hypothesis', 'N/A')}")
+    md_content.append("\n" + report_data.get('introduction', 'No introduction provided.'))
+    
+    # Methodology
+    md_content.append("\n## Methodology")
+    if report_data.get('materials'):
+        md_content.append("### Materials")
+        for item in report_data.get('materials', []):
+            md_content.append(f"- {item}")
+    
+    md_content.append("\n### Variables")
+    md_content.append(f"- **Independent Variable:** {report_data.get('independent_var', 'N/A')}")
+    md_content.append(f"- **Dependent Variable:** {report_data.get('dependent_var', 'N/A')}")
+    if report_data.get('controlled_vars'):
+        md_content.append("- **Controlled Variables:**")
+        for item in report_data.get('controlled_vars', []):
+            md_content.append(f"  - {item}")
             
-            # Generate PDF report
-            pdf_bytes = generate_pdf_report(report_data)
-            
-            # Create a download button for the PDF
-            b64_pdf = base64.b64encode(pdf_bytes).decode()
-            pdf_filename = f"{st.session_state.student_name.replace(' ', '_')}_Chemistry_IA.pdf"
-            href = f'<a href="data:application/pdf;base64,{b64_pdf}" download="{pdf_filename}">Download PDF Report</a>'
-            st.markdown(href, unsafe_allow_html=True)
-            
-            st.success("IA report generated successfully!")
-            
-            # Also allow downloading the report data as JSON for future use
-            report_json = json.dumps(report_data, indent=2)
-            b64_json = base64.b64encode(report_json.encode()).decode()
-            json_filename = f"{st.session_state.student_name.replace(' ', '_')}_Chemistry_IA_Data.json"
-            href_json = f'<a href="data:application/json;base64,{b64_json}" download="{json_filename}">Download Report Data (JSON)</a>'
-            st.markdown(href_json, unsafe_allow_html=True)
-            
+    md_content.append("\n### Procedure")
+    md_content.append(report_data.get('methodology', 'No procedure provided.'))
+    
+    if report_data.get('safety_considerations'):
+        md_content.append("\n### Safety Considerations")
+        md_content.append(report_data.get('safety_considerations', 'No safety considerations provided.'))
+
+    # Results and Data Analysis
+    md_content.append("\n## Results and Data Analysis")
+    # Raw Data Table
+    if 'data_df' in report_data and not report_data['data_df'].empty:
+        md_content.append("### Raw Data Table")
+        try:
+            # Convert DataFrame to Markdown table. `index=False` avoids writing DataFrame index.
+            if isinstance(report_data['data_df'], pd.DataFrame):
+                 md_content.append(report_data['data_df'].to_markdown(index=False))
+            elif isinstance(report_data['data_df'], dict): # Handles data loaded from JSON (e.g. from progress file)
+                df_for_md = pd.DataFrame(report_data['data_df'])
+                if not df_for_md.empty:
+                    md_content.append(df_for_md.to_markdown(index=False))
+                else:
+                    md_content.append("*Data table is empty or could not be converted.*")
+            else:
+                md_content.append("*Data table format not recognized for Markdown export.*")
         except Exception as e:
-            st.error(f"Error generating report: {e}")
+            md_content.append(f"*Could not render data table for Markdown: {e}*")
+    else:
+        md_content.append("*No raw data table provided or data is empty.*")
+
+    # Processed Data and Visualizations (Placeholder - visualizations are not directly embedded in Markdown)
+    md_content.append("\n### Data Visualization")
+    md_content.append("*Refer to generated plots. Markdown export does not embed interactive plots directly. Consider attaching image files separately or using the PDF report for figures.*")
+    if 'results_visualization' in report_data and report_data['results_visualization']:
+        viz_info = report_data['results_visualization']
+        md_content.append(f"A plot of '{viz_info.get('y_col')}' vs '{viz_info.get('x_col')}' was generated" + 
+                          (" with a trendline." if viz_info.get('add_trendline') else "."))
+
+    # Statistical Analysis Summary (Simplified for Markdown)
+    md_content.append("\n### Statistical Analysis")
+    if 'analysis_type' in report_data and report_data.get('stat_result') is not None:
+        md_content.append(f"**Analysis Type:** {report_data['analysis_type']}")
+        # Specific details would depend on how stat_result is structured for each type.
+        # This is a simplified representation.
+        md_content.append(f"*Statistical results were obtained. Refer to the application or PDF report for detailed tables and values (e.g., T-statistic, P-value, R-squared, ANOVA table).*")
+        if 'p_value' in report_data and report_data['p_value'] is not None:
+             md_content.append(f"**Overall P-value (if applicable):** {report_data['p_value']:.4f}")
+    else:
+        md_content.append("*No detailed statistical analysis results were found in the report data for Markdown export.*")
+
+    # Uncertainty Analysis
+    if report_data.get('calculated_abs_uncertainty') is not None:
+        md_content.append("\n### Uncertainty Analysis")
+        md_content.append(f"- **Calculated Absolute Uncertainty:** ±{report_data.get('calculated_abs_uncertainty'):.6g}")
+        md_content.append(f"- **Calculated Percentage Uncertainty:** {report_data.get('calculated_percentage_uncertainty'):.4g}%")
+    if report_data.get('propagated_error') is not None:
+        md_content.append(f"- **Propagated Error (if calculated):** ±{report_data.get('propagated_error'):.6g}")
+        if report_data.get('percentage_error') is not None:
+             md_content.append(f"- **Propagated Percentage Error:** {report_data.get('percentage_error'):.4g}%")
+    
+    # Conclusion
+    md_content.append("\n## Conclusion")
+    md_content.append(report_data.get('conclusion', 'No conclusion provided.'))
+
+    # Evaluation
+    md_content.append("\n## Evaluation")
+    md_content.append(report_data.get('evaluation', 'No evaluation provided.'))
+    # Identified Errors
+    if report_data.get('random_errors'):
+        md_content.append("\n### Identified Random Errors:")
+        for error in report_data.get('random_errors', []):
+            md_content.append(f"- {error}")
+    if report_data.get('systematic_errors'):
+        md_content.append("\n### Identified Systematic Errors:")
+        for error in report_data.get('systematic_errors', []):
+            md_content.append(f"- {error}")
+
+    # References
+    md_content.append("\n## References")
+    md_content.append(f"**Desired Citation Style:** {report_data.get('citation_style', 'APA')}")
+    if report_data.get('references_list'):
+        for ref in report_data.get('references_list', []):
+            md_content.append(f"- {ref}")
+    else:
+        md_content.append("*No references provided.*")
+    
+    # Join all parts of the Markdown content with double newlines for paragraph separation.
+    return "\n\n".join(md_content)
+
+with col_md:
+    if st.button("Export Report as Markdown"):
+        # Re-use the same data dictionary as for PDF
+        report_data_md = {
+            "student_name": st.session_state.student_name,
+            "candidate_number": st.session_state.candidate_number,
+            "school_name": st.session_state.school_name,
+            "teacher_name": st.session_state.teacher_name,
+            "experiment_date": st.session_state.experiment_date.strftime('%Y-%m-%d') if isinstance(st.session_state.experiment_date, datetime) else st.session_state.experiment_date,
+            "title": st.session_state.title,
+            "word_count": st.session_state.word_count,
+            "introduction": st.session_state.introduction,
+            "methodology": st.session_state.get('methodology', ""),
+            "materials": st.session_state.get('materials', []),
+            "independent_var": st.session_state.get('independent_var', ""),
+            "dependent_var": st.session_state.get('dependent_var', ""),
+            "controlled_vars": st.session_state.get('controlled_vars', []),
+            "safety_considerations": st.session_state.get('safety_considerations', ""),
+            "hypothesis": st.session_state.get('hypothesis', ""),
+            "data_df": st.session_state.get('data_df', pd.DataFrame()), # Pass dataframe
+            "conclusion": st.session_state.conclusion,
+            "evaluation": st.session_state.evaluation,
+            "random_errors": st.session_state.get('random_errors', []),
+            "systematic_errors": st.session_state.get('systematic_errors', []),
+            "references_list": st.session_state.get('references_list', []),
+            "citation_style": st.session_state.get('citation_style', "APA")
+        }
+        markdown_output = generate_markdown_report(report_data_md)
+        md_filename = f"{st.session_state.student_name.replace(' ', '_')}_Chemistry_IA.md"
+        st.download_button(
+            label="Download Markdown Report",
+            data=markdown_output,
+            file_name=md_filename,
+            mime="text/markdown"
+        )
+        st.success("Markdown report generated!")

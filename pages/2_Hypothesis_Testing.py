@@ -147,25 +147,37 @@ if st.session_state.hypothesis and st.session_state.null_hypothesis and st.sessi
         st.success("Your hypothesis appears to be well-formulated!")
 
 # Save hypothesis
-if st.session_state.hypothesis and st.session_state.null_hypothesis and st.session_state.alternative_hypothesis and st.session_state.rationale:
+if st.session_state.get('hypothesis') and \
+   st.session_state.get('null_hypothesis') and \
+   st.session_state.get('alternative_hypothesis') and \
+   st.session_state.get('rationale'):
+    
     if st.button("Save Hypothesis"):
+        # All relevant inputs (hypothesis, null_hypothesis, alternative_hypothesis, rationale)
+        # are st.text_area widgets directly bound to st.session_state keys.
+        # This means their values in st.session_state are updated as the user types.
+        # The "Save Hypothesis" button, therefore, primarily serves as a user confirmation
+        # that the currently entered data is acknowledged as "saved" and to display a summary.
+        # No explicit re-assignment of these session_state keys from widget values is needed here
+        # because they are already synchronized.
+
         st.success("Hypothesis saved successfully! Continue to Data Analysis.")
         
-        # Summary of formulated hypotheses
-        st.subheader("Hypothesis Summary")
+        # Summary of formulated hypotheses from session_state
+        st.subheader("Hypothesis Summary (Reflecting current saved state)")
         
         summary_md = f"""
         **Scientific Hypothesis:**  
-        {st.session_state.hypothesis}
+        {st.session_state.get("hypothesis", "Not specified")}
         
         **Null Hypothesis (H₀):**  
-        {st.session_state.null_hypothesis}
+        {st.session_state.get("null_hypothesis", "Not specified")}
         
         **Alternative Hypothesis (H₁):**  
-        {st.session_state.alternative_hypothesis}
+        {st.session_state.get("alternative_hypothesis", "Not specified")}
         
         **Scientific Rationale:**  
-        {st.session_state.rationale}
+        {st.session_state.get("rationale", "Not specified")}
         """
         
         st.markdown(summary_md)

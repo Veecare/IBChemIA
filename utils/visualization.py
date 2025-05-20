@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from scipy import stats
 
-def create_scatter_plot(df, x_col, y_col):
+def create_scatter_plot(df, x_col, y_col, title=None, x_label=None, y_label=None, marker_color=None):
     """
     Create a scatter plot with the given data.
     
@@ -16,13 +16,30 @@ def create_scatter_plot(df, x_col, y_col):
         Name of the column to use for x-axis
     y_col : str
         Name of the column to use for y-axis
+    title : str, optional
+        Title of the plot
+    x_label : str, optional
+        Label for the x-axis
+    y_label : str, optional
+        Label for the y-axis
+    marker_color : str, optional
+        Color of the markers
         
     Returns:
     --------
     fig : plotly.graph_objects.Figure
         The generated scatter plot
     """
-    fig = px.scatter(df, x=x_col, y=y_col, title=f"{y_col} vs {x_col}")
+    plot_title = title if title else f"{y_col} vs {x_col}"
+    fig = px.scatter(df, x=x_col, y=y_col, title=plot_title)
+    
+    if x_label:
+        fig.update_layout(xaxis_title=x_label)
+    if y_label:
+        fig.update_layout(yaxis_title=y_label)
+    if marker_color:
+        fig.update_traces(marker=dict(color=marker_color))
+        
     return fig
 
 def create_bar_chart(df, x_col, y_col):

@@ -197,12 +197,70 @@ with col1:
             st.error(f"Error calculating uncertainty: {e}")
 
 with col2:
-    st.markdown("#### Instrument Precision Uncertainty")
-    instrument_value = st.number_input("Measured Value", value=0.0)
-    instrument_precision = st.number_input("Instrument Precision (smallest scale division)", value=0.1, min_value=0.000001, format="%.6f")
+    st.markdown("#### Instrument Uncertainty")
+    instrument_value = st.number_input("Measured Value", value=0.0, key="manual_instrument_value")
     
-    # Calculate uncertainty
-    absolute_uncertainty_instr = instrument_precision / 2
+    # Equipment Uncertainty Database
+    st.markdown("##### Common Lab Equipment Uncertainties")
+    # This dictionary stores typical absolute uncertainties for common lab equipment.
+    # Values are examples and may vary based on specific equipment class and calibration.
+    # Units are typically in mL for volumetric glassware and g for balances, unless otherwise specified in the name.
+    equipment_uncertainties = {
+        "Select Equipment...": 0.0,  # Default placeholder
+        "Volumetric Flask (25mL Class A)": 0.03, # mL
+        "Volumetric Flask (50mL Class A)": 0.05,
+        "Volumetric Flask (100mL Class A)": 0.08,
+        "Volumetric Flask (250mL Class A)": 0.12,
+        "Volumetric Flask (500mL Class A)": 0.20,
+        "Pipette (1mL Class A)": 0.006,
+        "Pipette (5mL Class A)": 0.01,
+        "Pipette (10mL Class A)": 0.02,
+        "Pipette (25mL Class A)": 0.03,
+        "Pipette (50mL Class A)": 0.05,
+        "Burette (10mL Class A)": 0.02,
+        "Burette (25mL Class A)": 0.03,
+        "Burette (50mL Class A)": 0.05,
+        "Analytical Balance (± g)": 0.0002, # typically ±0.0001g or ±0.0002g
+        "Top-loading Balance (± g)": 0.01, # can vary widely
+        "Digital Thermometer (± °C)": 0.1,
+        "Liquid-in-glass Thermometer (± °C)": 0.2, # depends on calibration and range
+        "Graduated Cylinder (10mL)": 0.1,
+        "Graduated Cylinder (25mL)": 0.2,
+        "Graduated Cylinder (50mL)": 0.5,
+        "Graduated Cylinder (100mL)": 1.0,
+    }
+    
+    selected_equipment = st.selectbox("Select from common equipment", 
+                                      options=list(equipment_uncertainties.keys()), 
+                                      key="selected_equipment")
+    
+    
+    # Input field for the user to manually enter or adjust the absolute uncertainty of their instrument.
+    # This value can be populated by selecting from the `equipment_uncertainties` list
+    # or entered directly by the user.
+    st.session_state.instrument_precision = st.number_input(
+        "Absolute Uncertainty of Instrument (e.g., ±0.05 mL or ±0.0002 g)", 
+        value=float(st.session_state.get('instrument_precision', 0.1)), # Retain last value or default
+        min_value=0.00000001, # Allow for very precise instruments (e.g., microbalances)
+        format="%.8f", # Display more decimal places for precision
+        key="instrument_precision_input",
+        help="Enter the known absolute uncertainty of your measuring instrument. This is often provided by the manufacturer or calibration certificate."
+    )
+
+    if selected_equipment != "Select Equipment...":
+        # Display the typical uncertainty for the selected equipment.
+        st.write(f"Typical uncertainty for {selected_equipment}: ±{equipment_uncertainties[selected_equipment]}")
+        # Button to automatically populate the 'Absolute Uncertainty of Instrument' field.
+        if st.button("Use this uncertainty", key="use_equipment_uncertainty"):
+            st.session_state.instrument_precision = equipment_uncertainties[selected_equipment]
+            # st.experimental_rerun() is used to immediately update the number_input field above
+            # with the value from the selected equipment.
+            st.experimental_rerun()
+            
+    # The `absolute_uncertainty_instr` is now directly taken from `st.session_state.instrument_precision`.
+    # Previously, it might have been calculated (e.g., half of smallest division).
+    # Now, it's assumed the user provides the direct absolute uncertainty.
+    absolute_uncertainty_instr = st.session_state.instrument_precision
     
     if instrument_value != 0:
         percentage_uncertainty_instr = (absolute_uncertainty_instr / abs(instrument_value)) * 100
@@ -345,81 +403,119 @@ else:  # Complex Function
         expr = sympify(expression)
         variables = sorted(list(expr.free_symbols), key=lambda x: x.name)
         
-        # Create input fields for each variable
-        st.markdown("#### Enter values and uncertainties for each variable:")
+        # Create input fields for each variable identified by SymPy from the expression.
+        st.markdown("#### Enter values, uncertainties, and units for each variable:")
         
-        # Initialize/update variables dictionary if needed
-        if not st.session_state.error_variables:
-            st.session_state.error_variables = {var.name: {"value": 0.0, "uncertainty": 0.0} for var in variables}
+        # Initialize or update the session state dictionary for error variables.
+        # This ensures that if variables are added or removed from the expression,
+        # the dictionary structure is updated accordingly.
+        if not st.session_state.error_variables: # Initialize if empty
+            st.session_state.error_variables = {var.name: {"value": 0.0, "uncertainty": 0.0, "unit": ""} for var in variables}
         
-        # Make sure all variables from the expression are in the dictionary
-        for var in variables:
-            if var.name not in st.session_state.error_variables:
-                st.session_state.error_variables[var.name] = {"value": 0.0, "uncertainty": 0.0}
+        # Ensure all current variables from the expression exist in the session state dictionary.
+        # This handles cases where the expression changes and new variables are introduced.
+        for var_symbol in variables:
+            var_name = var_symbol.name
+            if var_name not in st.session_state.error_variables:
+                st.session_state.error_variables[var_name] = {"value": 0.0, "uncertainty": 0.0, "unit": ""}
         
-        # Create columns for inputs
+        # Dynamically create columns for a cleaner layout of variable inputs.
+        # The number of columns matches the number of identified variables.
         cols = st.columns(len(variables))
         
-        # Populate inputs for each variable
-        for i, var in enumerate(variables):
+        # Populate input fields for each variable (value, uncertainty, unit).
+        for i, var_symbol in enumerate(variables):
+            var_name = var_symbol.name
             with cols[i]:
-                st.markdown(f"**Variable: {var.name}**")
-                value = st.number_input(f"Value for {var.name}", 
-                                       value=float(st.session_state.error_variables[var.name]["value"]),
-                                       key=f"value_{var.name}")
+                st.markdown(f"**Variable: {var_name}**")
+                # Input for the measured value of the variable.
+                value = st.number_input(f"Value for {var_name}",
+                                       value=float(st.session_state.error_variables[var_name].get("value", 0.0)),
+                                       key=f"value_{var_name}",
+                                       help=f"Enter the measured value for variable '{var_name}'.")
                 
-                uncertainty = st.number_input(f"Uncertainty in {var.name}", 
-                                           value=float(st.session_state.error_variables[var.name]["uncertainty"]),
-                                           min_value=0.0,
-                                           key=f"uncertainty_{var.name}")
+                # Input for the absolute uncertainty of the variable.
+                uncertainty = st.number_input(f"Uncertainty in {var_name} (Δ{var_name})",
+                                           value=float(st.session_state.error_variables[var_name].get("uncertainty", 0.0)),
+                                           min_value=0.0, # Uncertainty cannot be negative.
+                                           format="%.6g", # General format for displaying uncertainty.
+                                           key=f"uncertainty_{var_name}",
+                                           help=f"Enter the absolute uncertainty (e.g., ±0.01) for variable '{var_name}'.")
                 
-                # Store values in session state
-                st.session_state.error_variables[var.name]["value"] = value
-                st.session_state.error_variables[var.name]["uncertainty"] = uncertainty
+                # Input for the unit of the variable.
+                unit = st.text_input(f"Unit for {var_name}",
+                                     value=str(st.session_state.error_variables[var_name].get("unit", "")),
+                                     key=f"unit_{var_name}",
+                                     help=f"Enter the unit for variable '{var_name}' (e.g., g, mL, mol/L).")
+                
+                # Store the entered values back into the session state dictionary for this variable.
+                st.session_state.error_variables[var_name]["value"] = value
+                st.session_state.error_variables[var_name]["uncertainty"] = uncertainty
+                st.session_state.error_variables[var_name]["unit"] = unit
         
-        # Calculate propagated error
-        if st.button("Calculate Propagated Error") and variables:
+        # Button to trigger the error propagation calculation.
+        if st.button("Calculate Propagated Error for Complex Function", key="calc_complex_error_button") and variables:
             try:
-                # Substitute values to calculate result
-                subs_dict = {var.name: st.session_state.error_variables[var.name]["value"] for var in variables}
-                result = expr.subs(subs_dict)
+                # Prepare a dictionary for substituting variable values into the SymPy expression.
+                subs_dict_val = {var.name: st.session_state.error_variables[var.name]["value"] for var in variables}
+                # Calculate the result of the function using the provided variable values.
+                result = expr.subs(subs_dict_val)
                 
-                # Calculate partial derivatives and propagate error
-                error_squared_sum = 0
+                # Initialize sum of squared errors for propagation formula.
+                error_squared_sum = 0.0
                 
-                for var in variables:
-                    # Calculate partial derivative
-                    partial_deriv = diff(expr, var)
+                # Display a summary of the variables, their values, uncertainties, and units.
+                st.markdown("#### Summary of Variables Used in Calculation:")
+                for var_symbol in variables:
+                    var_name = var_symbol.name
+                    val = st.session_state.error_variables[var_name]['value']
+                    unc = st.session_state.error_variables[var_name]['uncertainty']
+                    unit_str = st.session_state.error_variables[var_name]['unit']
+                    st.markdown(f"- **{var_name}**: {val} ± {unc} {unit_str}")
+
+                # Calculate error propagation using partial derivatives.
+                # The formula is: Δf = sqrt(Σ ( (∂f/∂xi * Δxi)^2 ) )
+                for var_symbol in variables:
+                    var_name = var_symbol.name
+                    # Calculate the partial derivative of the expression with respect to the current variable.
+                    partial_deriv_expr = diff(expr, var_symbol)
+                    # Substitute the measured values of variables into the partial derivative expression.
+                    partial_deriv_value = partial_deriv_expr.subs(subs_dict_val)
                     
-                    # Substitute values in the partial derivative
-                    partial_deriv_value = partial_deriv.subs(subs_dict)
+                    # Get the uncertainty for the current variable.
+                    var_uncertainty = st.session_state.error_variables[var_name]["uncertainty"]
                     
-                    # Get uncertainty for this variable
-                    var_uncertainty = st.session_state.error_variables[var.name]["uncertainty"]
-                    
-                    # Add term to the sum
-                    error_squared_sum += (partial_deriv_value * var_uncertainty) ** 2
+                    # Add the squared term (∂f/∂xi * Δxi)^2 to the sum.
+                    # Ensure conversion to float for mathematical operations.
+                    error_squared_sum += (float(partial_deriv_value) * var_uncertainty) ** 2
                 
-                # Calculate propagated error
-                propagated_error = math.sqrt(error_squared_sum)
+                # The propagated error is the square root of the sum of squared errors.
+                propagated_error = math.sqrt(error_squared_sum) 
                 
-                # Store the result
+                # Store the calculated propagated error in session state.
                 st.session_state.propagated_error = propagated_error
                 
-                # Calculate percentage error
+                # Input for the overall unit of the final result.
+                overall_unit = st.text_input("Overall Unit for Result", 
+                                             value=st.session_state.get("overall_unit", ""),
+                                             key="overall_unit_input",
+                                             help="Enter the unit for the final calculated result (e.g., g/mL).")
+                st.session_state.overall_unit = overall_unit # Store in session state.
+
+                # Calculate percentage error if the result is not zero.
                 if result != 0:
-                    percentage_error = (propagated_error / abs(float(result))) * 100
-                    st.session_state.percentage_error = percentage_error
+                    percentage_error_val = (propagated_error / abs(float(result))) * 100
+                    st.session_state.percentage_error = percentage_error_val # Store in session state.
                 else:
-                    percentage_error = None
-                    st.session_state.percentage_error = None
+                    percentage_error_val = None
+                    st.session_state.percentage_error = None # Clear if result is zero.
                 
-                # Display results
-                st.markdown(f"**Function:** {expression}")
-                st.markdown(f"**Result:** {float(result):.6g} ± {propagated_error:.6g}")
+                # Display the final results: function, result with propagated error, and percentage error.
+                st.markdown(f"**Function Evaluated:** `{expression}`")
+                st.success(f"**Calculated Result:** {float(result):.6g} ± {propagated_error:.6g} {overall_unit}")
                 
-                if percentage_error is not None:
-                    st.markdown(f"**Percentage Error:** {percentage_error:.4g}%")
+                if percentage_error_val is not None:
+                    st.markdown(f"**Percentage Error in Result:** {percentage_error_val:.4g}%")
                 
                 # Display the formula used
                 st.markdown("**Formula Used:**")
@@ -517,6 +613,24 @@ if summary_text:
     st.markdown(summary_text)
     
     if st.button("Save Error Analysis"):
+        # Most relevant data on this page is already stored in st.session_state
+        # due to direct widget binding or immediate processing after widget interaction.
+        # - Random/Systematic errors (lists): Updated on text_area change.
+        # - Calculated uncertainties: Updated when calculation method/column changes.
+        # - Instrument uncertainty inputs: Bound to session_state via keys.
+        # - Error propagation inputs for complex functions: Bound to session_state via keys.
+        # - Error propagation results: Set in session_state when "Calculate Propagated Error" is clicked.
+        # - Error minimization strategies: Bound to session_state via dynamic keys.
+        #
+        # This button primarily serves as a user confirmation point. The summary displayed
+        # by this button (if it were to generate one) would reflect the current st.session_state.
+        # The existing summary_text variable is built *before* this button is defined.
+        # For consistency, we can consider the act of clicking "Save" as confirming
+        # that the `summary_text` displayed above is what they intend to "save" implicitly.
+        
+        # If we wanted to store the generated summary_text itself into session_state:
+        # st.session_state.saved_error_analysis_summary = summary_text
+        
         st.success("Error analysis saved successfully! Continue to Report Generation.")
 else:
     st.info("Complete the error analysis steps above to generate a summary.")

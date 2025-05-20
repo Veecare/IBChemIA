@@ -178,12 +178,17 @@ def generate_pdf_report(report_data):
         "   2.4 Safety Considerations",
         "3. Results and Data Analysis",
         "4. Conclusion",
-        "5. Evaluation"
+        "5. Evaluation",
+        "6. References"
     ]
     
-    for item in toc_items:
-        pdf.body_text(item)
-    
+    # Add TOC items with placeholder page numbers (actual page numbers are hard with FPDF for dynamic content)
+    # A more sophisticated TOC would require calculating page numbers beforehand or post-processing.
+    for i, item in enumerate(toc_items):
+        # Simple TOC line; page numbers are placeholders as FPDF builds sequentially.
+        pdf.cell(0, 8, f"{item} .................................................. Placeholder Page", 0, 1, 'L') 
+    pdf.ln(5)
+
     # Introduction
     pdf.add_page()
     pdf.chapter_title("1. Introduction")
@@ -279,11 +284,50 @@ def generate_pdf_report(report_data):
         except Exception as e:
             pdf.body_text(f"Error rendering data table: {str(e)}")
     
-    # Add a placeholder for data visualization
-    pdf.section_title("3.2 Data Visualization")
-    pdf.body_text("Graphs and charts from your data analysis are integrated into your report. These visual representations help illustrate the relationships between variables and the trends observed in your experiment.")
     
-    # Statistical analysis
+    # Data Visualization Section
+    pdf.section_title("3.2 Data Visualization")
+    # Check if visualization details and data are available in the report_data
+    if report_data.get("results_visualization") and \
+       isinstance(report_data.get("data_df"), pd.DataFrame) and \
+       not report_data.get("data_df").empty:
+        
+        viz_details = report_data["results_visualization"]
+        df_viz = report_data["data_df"] # DataFrame used for the plot
+        x_col_viz = viz_details.get('x_col') # X-axis column from session_state
+        y_col_viz = viz_details.get('y_col') # Y-axis column from session_state
+        add_trendline_viz = viz_details.get('add_trendline', False) # Trendline option
+
+        # Ensure necessary column names are present in the DataFrame
+        if x_col_viz and y_col_viz and x_col_viz in df_viz.columns and y_col_viz in df_viz.columns:
+            try:
+                # Recreate the Plotly Express scatter plot
+                fig = px.scatter(df_viz, x=x_col_viz, y=y_col_viz, 
+                                 title=f"Figure 1: {y_col_viz} vs {x_col_viz}", # Add Figure number to title
+                                 trendline="ols" if add_trendline_viz else None)
+                fig.update_layout(title_x=0.5) # Center the plot title
+                
+                # Convert the Plotly figure to a static image (PNG) in memory using Kaleido
+                # This is necessary for embedding in FPDF, which doesn't directly support Plotly objects.
+                img_bytes = fig.to_image(format="png", engine="kaleido", scale=2) # Increased scale for better resolution
+                img_path_temp = io.BytesIO(img_bytes) # Use BytesIO as a file-like object for FPDF
+                
+                # Add the image to the PDF.
+                # Calculate available width for the image (page width - margins) to make it responsive.
+                available_width = pdf.w - 2 * pdf.l_margin 
+                # Add image, scaled to 90% of available width to prevent overflow.
+                pdf.add_image(img_path_temp, w=available_width * 0.9, caption=f"Figure 1: Scatter plot of {y_col_viz} vs {x_col_viz}.")
+                img_path_temp.close() # Close the BytesIO object
+            except Exception as e:
+                # If plot generation fails (e.g., Kaleido not installed, data issue), write an error message.
+                pdf.body_text(f"Error generating plot for PDF: {str(e)}. Ensure 'kaleido' is installed and data is appropriate.")
+        else:
+            pdf.body_text("Plot details or data columns for visualization are missing or invalid.")
+    else:
+        pdf.body_text("No data or visualization details available to generate a plot for this section.")
+    pdf.ln(5) # Add some vertical space after the plot or message.
+    
+    # Statistical Analysis Section
     pdf.section_title("3.3 Statistical Analysis")
     
     if report_data.get("hypothesis"):
@@ -323,14 +367,36 @@ def generate_pdf_report(report_data):
         pdf.body_text(report_data["evaluation"])
     else:
         pdf.body_text("Evaluation not provided.")
+    pdf.ln(10)
+
     
-    # Get the PDF as bytes
+    # References Section
+    pdf.add_page()
+    pdf.chapter_title("6. References")
+    references_list = report_data.get("references_list", []) # Get list of reference strings
+    citation_style = report_data.get("citation_style", "N/A") # Get chosen citation style
+
+    if references_list:
+        # Note to the user about the chosen citation style.
+        # The tool does not automatically format references; this is for documentation.
+        pdf.body_text(f"Desired citation style for this list: {citation_style}")
+        pdf.ln(3) # Add a small line break
+        # Iterate through the list of references and add each to the PDF.
+        # Using multi_cell to handle potentially long reference strings that need to wrap.
+        for ref_text in references_list:
+            pdf.multi_cell(0, 6, f"• {ref_text}") # Prefix with a bullet point for list appearance
+            pdf.ln(2) # Space between references
+    else:
+        pdf.body_text("No references were provided for this report.")
+    
+    # Finalize the PDF and get its content as bytes.
+    # 'S' destination means output as a string (which FPDF then encodes to latin1 bytes).
     pdf_bytes = pdf.output(dest='S').encode('latin1')
     
     return pdf_bytes
 
-
-def generate_matplotlib_figure(df, x_col, y_col, add_trendline=False):
+# Removed generate_matplotlib_figure as we are using Plotly directly with Kaleido
+# def generate_matplotlib_figure(df, x_col, y_col, add_trendline=False):
     """
     Generate a Matplotlib figure for inclusion in the PDF
     

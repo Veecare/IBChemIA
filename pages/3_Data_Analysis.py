@@ -160,13 +160,42 @@ if not st.session_state.data_df.empty:
         
         # Generate plot
         if plot_type == "Scatter":
-            fig = create_scatter_plot(st.session_state.data_df, x_col, y_col)
+            # Plot customization
+            plot_title_scatter = st.text_input("Plot Title", value=f"{y_col} vs {x_col}", key="scatter_title")
+            x_label_scatter = st.text_input("X-axis Label", value=x_col, key="scatter_xlabel")
+            y_label_scatter = st.text_input("Y-axis Label", value=y_col, key="scatter_ylabel")
+            marker_color_scatter = st.color_picker("Marker Color", value="#1f77b4", key="scatter_color")
+
+            fig = create_scatter_plot(st.session_state.data_df, x_col, y_col, 
+                                      title=plot_title_scatter, x_label=x_label_scatter, y_label=y_label_scatter,
+                                      marker_color=marker_color_scatter)
         elif plot_type == "Line":
+            plot_title_line = st.text_input("Plot Title", value=f"{y_col} vs {x_col}", key="line_title")
+            x_label_line = st.text_input("X-axis Label", value=x_col, key="line_xlabel")
+            y_label_line = st.text_input("Y-axis Label", value=y_col, key="line_ylabel")
+            line_color_line = st.color_picker("Line Color", value="#1f77b4", key="line_color")
+
             fig = px.line(st.session_state.data_df, x=x_col, y=y_col, markers=True)
+            fig.update_layout(title=plot_title_line, xaxis_title=x_label_line, yaxis_title=y_label_line)
+            fig.update_traces(line=dict(color=line_color_line), marker=dict(color=line_color_line))
+
         elif plot_type == "Bar":
+            # Basic customization for bar chart (can be expanded)
+            plot_title_bar = st.text_input("Plot Title", value=f"{y_col} by {x_col}", key="bar_title")
+            x_label_bar = st.text_input("X-axis Label", value=x_col, key="bar_xlabel")
+            y_label_bar = st.text_input("Y-axis Label", value=y_col, key="bar_ylabel")
+            
             fig = create_bar_chart(st.session_state.data_df, x_col, y_col)
+            fig.update_layout(title=plot_title_bar, xaxis_title=x_label_bar, yaxis_title=y_label_bar)
+
         elif plot_type == "Box":
+            # Basic customization for box plot (can be expanded)
+            plot_title_box = st.text_input("Plot Title", value=f"Distribution of {y_col} by {x_col}", key="box_title")
+            x_label_box = st.text_input("X-axis Label", value=x_col, key="box_xlabel")
+            y_label_box = st.text_input("Y-axis Label", value=y_col, key="box_ylabel")
+
             fig = create_box_plot(st.session_state.data_df, x_col, y_col)
+            fig.update_layout(title=plot_title_box, xaxis_title=x_label_box, yaxis_title=y_label_box)
         
         # Add regression line option for scatter plots
         if plot_type == "Scatter":
@@ -238,7 +267,7 @@ if not st.session_state.data_df.empty:
     st.subheader("Step 3: Statistical Analysis")
     
     # Select analysis type
-    analysis_options = ["T-test", "ANOVA", "Correlation", "Linear Regression"]
+    analysis_options = ["T-test", "ANOVA", "Correlation", "Linear Regression", "Non-linear Regression"]
     selected_analysis = st.selectbox("Select statistical test", options=analysis_options)
     
     if selected_analysis != st.session_state.analysis_type:
@@ -260,8 +289,48 @@ if not st.session_state.data_df.empty:
                                index=1 if len(numeric_cols) > 1 else 0)
             
             # Perform t-test
+            perform_assumption_checks_t = st.checkbox("Perform assumption checks for T-test", value=False)
+            
             if st.button("Run T-test"):
-                result, p_value = perform_t_test(st.session_state.data_df[col1], st.session_state.data_df[col2])
+                sample1 = st.session_state.data_df[col1].dropna()
+                sample2 = st.session_state.data_df[col2].dropna()
+
+                # Ensure enough data points for the t-test after removing NaNs
+                if len(sample1) < 3 or len(sample2) < 3:
+                    st.warning("Not enough data points for T-test after removing NaNs (minimum 3 required for each sample).")
+                    return # Changed from st.stop() to return for better flow control if this page is part of a larger app
+
+                if perform_assumption_checks_t:
+                    st.markdown("#### T-test Assumption Checks:")
+                    # Normality Check (Shapiro-Wilk Test)
+                    # Tests if each sample deviates from a normal distribution.
+                    # p-value < 0.05 suggests non-normality.
+                    if len(sample1) >= 3: # Shapiro-Wilk needs at least 3 samples
+                        shapiro_stat1, shapiro_p1 = stats.shapiro(sample1)
+                        st.markdown(f"**Normality Check (Shapiro-Wilk) for '{col1}':** Statistic={shapiro_stat1:.4f}, P-value={shapiro_p1:.4f}")
+                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;*Interpretation: {'Normality assumption likely met (p ≥ 0.05).' if shapiro_p1 >= 0.05 else 'Normality assumption potentially NOT met (p < 0.05). Consider visual inspection (e.g., Q-Q plot) or alternative tests if sample size is small.'}*")
+                    else:
+                        st.markdown(f"**Normality Check (Shapiro-Wilk) for '{col1}':** Not enough data points (minimum 3 required).")
+
+                    if len(sample2) >= 3:
+                        shapiro_stat2, shapiro_p2 = stats.shapiro(sample2)
+                        st.markdown(f"**Normality Check (Shapiro-Wilk) for '{col2}':** Statistic={shapiro_stat2:.4f}, P-value={shapiro_p2:.4f}")
+                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;*Interpretation: {'Normality assumption likely met (p ≥ 0.05).' if shapiro_p2 >= 0.05 else 'Normality assumption potentially NOT met (p < 0.05). Consider visual inspection or alternative tests if sample size is small.'}*")
+                    else:
+                        st.markdown(f"**Normality Check (Shapiro-Wilk) for '{col2}':** Not enough data points (minimum 3 required).")
+
+                    # Homogeneity of Variances (Levene's Test)
+                    # Tests if the variances of the two samples are equal.
+                    # p-value < 0.05 suggests variances are not equal.
+                    # The t-test performed by `perform_t_test` already uses `equal_var=False` (Welch's t-test),
+                    # which does not assume equal variances, making this check informative but not critical for test validity.
+                    levene_stat, levene_p = stats.levene(sample1, sample2)
+                    st.markdown(f"**Homogeneity of Variances (Levene's Test):** Statistic={levene_stat:.4f}, P-value={levene_p:.4f}")
+                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;*Interpretation: {'Homogeneity of variances assumption likely met (p ≥ 0.05).' if levene_p >= 0.05 else 'Homogeneity of variances assumption potentially NOT met (p < 0.05). Note: Welch T-test is used by default, which handles unequal variances.'}*")
+                    st.markdown("---") # Visual separator
+
+                # Perform the t-test using the utility function
+                result, p_value = perform_t_test(sample1, sample2) # Assumes perform_t_test handles potential errors
                 st.session_state.stat_result = result
                 st.session_state.p_value = p_value
                 
@@ -287,9 +356,59 @@ if not st.session_state.data_df.empty:
             selected_cols = st.multiselect("Select variables for ANOVA", options=numeric_cols, default=numeric_cols[:3])
             
             if len(selected_cols) >= 2:
+                perform_assumption_checks_anova = st.checkbox("Perform assumption checks for ANOVA", value=False)
                 # Perform ANOVA
                 if st.button("Run ANOVA"):
-                    result, p_value = perform_anova(st.session_state.data_df, selected_cols)
+                    data_for_anova = [st.session_state.data_df[col].dropna() for col in selected_cols]
+                    
+                    # Check if any group has less than 3 data points after removing NaNs
+                    if any(len(group) < 3 for group in data_for_anova):
+                        st.warning("Not enough data points for ANOVA after removing NaNs (minimum 3 required for each group).")
+                        return # Changed from st.stop()
+
+                    if perform_assumption_checks_anova:
+                        st.markdown("#### ANOVA Assumption Checks:")
+                        # 1. Homogeneity of Variances (Levene's Test)
+                        # Tests if the variance is the same across all groups.
+                        # p-value < 0.05 suggests variances are not equal.
+                        # ANOVA is somewhat robust to violations if group sizes are equal.
+                        levene_stat, levene_p = stats.levene(*data_for_anova) # Unpack list of arrays for Levene's test
+                        st.markdown(f"**Homogeneity of Variances (Levene's Test):** Statistic={levene_stat:.4f}, P-value={levene_p:.4f}")
+                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;*Interpretation: {'Homogeneity of variances assumption likely met (p ≥ 0.05).' if levene_p >= 0.05 else 'Homogeneity of variances assumption potentially NOT met (p < 0.05). If violated, consider alternative tests or transformations if group sizes are very unequal.'}*")
+
+                        # 2. Normality of Residuals (Shapiro-Wilk Test)
+                        # ANOVA assumes that the residuals (differences between observed and predicted values) are normally distributed.
+                        # This is checked by fitting an OLS model and performing Shapiro-Wilk on its residuals.
+                        
+                        # Prepare data for OLS model: concatenate all values and create corresponding group labels
+                        all_values = np.concatenate([group_data for group_data in data_for_anova if len(group_data) > 0]) # Ensure group_data is not empty
+                        group_labels_ols = []
+                        for i, group_data in enumerate(data_for_anova):
+                            if len(group_data) > 0:
+                                group_labels_ols.extend([selected_cols[i]] * len(group_data))
+                        
+                        if len(all_values) > 0 and len(all_values) == len(group_labels_ols):
+                            df_for_ols = pd.DataFrame({'value': all_values, 'group': group_labels_ols})
+                            
+                            try:
+                                # Fit an Ordinary Least Squares (OLS) model to get residuals
+                                model = ols('value ~ C(group)', data=df_for_ols).fit()
+                                residuals = model.resid
+                                
+                                if len(residuals) >= 3: # Shapiro-Wilk needs at least 3 samples
+                                    shapiro_stat, shapiro_p = stats.shapiro(residuals)
+                                    st.markdown(f"**Normality of Residuals (Shapiro-Wilk):** Statistic={shapiro_stat:.4f}, P-value={shapiro_p:.4f}")
+                                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;*Interpretation: {'Normality of residuals assumption likely met (p ≥ 0.05).' if shapiro_p >= 0.05 else 'Normality of residuals assumption potentially NOT met (p < 0.05). Consider visual inspection (e.g., Q-Q plot of residuals) or transformations if violated.'}*")
+                                else:
+                                    st.markdown("**Normality of Residuals (Shapiro-Wilk):** Not enough data points for the test on residuals (minimum 3 required).")
+                            except Exception as e:
+                                st.markdown(f"**Normality of Residuals (Shapiro-Wilk):** Error during calculation - {e}")
+                        else:
+                            st.markdown("**Normality of Residuals (Shapiro-Wilk):** Not enough data across groups to perform the test.")
+                        st.markdown("---") # Visual separator
+
+                    # Perform ANOVA using the utility function
+                    result, p_value = perform_anova(st.session_state.data_df, selected_cols) # Assumes perform_anova handles potential errors
                     st.session_state.stat_result = result
                     st.session_state.p_value = p_value
                     
@@ -461,8 +580,152 @@ if not st.session_state.data_df.empty:
         else:
             st.warning("Need at least two numeric columns for regression analysis.")
 
+    elif selected_analysis == "Non-linear Regression":
+        st.markdown("Model non-linear relationships between variables.")
+        
+        non_linear_options = ["Polynomial Regression", "Exponential Regression"]
+        selected_non_linear = st.selectbox("Select non-linear regression type", options=non_linear_options)
+
+        numeric_cols = st.session_state.data_df.select_dtypes(include=[np.number]).columns.tolist()
+
+        if len(numeric_cols) >= 2:
+            y_var = st.selectbox("Select dependent variable (y)", options=numeric_cols, key="non_linear_y")
+            x_var = st.selectbox("Select independent variable (x)",
+                                 options=[col for col in numeric_cols if col != y_var],
+                                 key="non_linear_x")
+            
+            if selected_non_linear == "Polynomial Regression":
+                degree = st.number_input("Select polynomial degree", min_value=2, max_value=10, value=2)
+
+                if st.button("Run Polynomial Regression"):
+                    x_data = st.session_state.data_df[x_var]
+                    y_data = st.session_state.data_df[y_var]
+
+                    try:
+                        # Fit polynomial model using numpy.polyfit
+                        # coeffs are returned in order of decreasing power (e.g., for degree 2: [a, b, c] for ax^2 + bx + c)
+                        coeffs = np.polyfit(x_data, y_data, degree)
+                        poly_model = np.poly1d(coeffs) # Creates a callable polynomial function
+                        
+                        # Calculate R-squared value for the polynomial fit
+                        y_pred = poly_model(x_data) # Predicted y values from the model
+                        ss_res = np.sum((y_data - y_pred)**2) # Residual sum of squares
+                        ss_tot = np.sum((y_data - np.mean(y_data))**2) # Total sum of squares
+                        if ss_tot == 0: # Avoid division by zero if all y_data points are the same
+                            r_squared = 1 if ss_res == 0 else 0 # Perfect fit if ss_res is also 0, else no fit
+                        else:
+                            r_squared = 1 - (ss_res / ss_tot)
+                        
+                        # Store results in session state for potential use in other parts of the app (e.g., report generation)
+                        st.session_state.stat_result = {
+                            "model_type": "Polynomial Regression",
+                            "coefficients": coeffs.tolist(), # Convert numpy array to list for JSON serializability if needed
+                            "r_squared": r_squared,
+                            "degree": degree,
+                            "x_var": x_var,
+                            "y_var": y_var,
+                            "equation_str": np.poly1d(coeffs) # Store the poly1d object or its string representation
+                        }
+                        
+                        # Display the fitted polynomial equation
+                        equation_parts = []
+                        for i, c in enumerate(coeffs):
+                            power = degree - i
+                            term = f"{c:+.4f}" # Format coefficient with sign and 4 decimal places
+                            if power > 1:
+                                term += f"x^{power}"
+                            elif power == 1:
+                                term += "x"
+                            equation_parts.append(term)
+                        equation_str = "y = " + " ".join(equation_parts).replace("+ -", "- ") # Clean up signs
+                        
+                        st.markdown(f"**Polynomial Equation (degree {degree}):** `{equation_str}`")
+                        st.markdown(f"**R-squared (R²):** {r_squared:.4f}")
+                        
+                        # Visualization of the polynomial fit
+                        plot_title_poly = st.text_input("Plot Title", value=f"Polynomial Regression: {y_var} vs {x_var}", key="poly_title")
+                        x_label_poly = st.text_input("X-axis Label", value=x_var, key="poly_xlabel")
+                        y_label_poly = st.text_input("Y-axis Label", value=y_var, key="poly_ylabel")
+                        marker_color_poly = st.color_picker("Marker Color", value="#1f77b4", key="poly_marker_color")
+                        line_color_poly = st.color_picker("Fit Line Color", value="red", key="poly_line_color")
+
+                        fig = px.scatter(st.session_state.data_df, x=x_var, y=y_var)
+                        fig.update_layout(title=plot_title_poly, xaxis_title=x_label_poly, yaxis_title=y_label_poly)
+                        fig.update_traces(marker=dict(color=marker_color_poly))
+                        
+                        x_range_poly = np.linspace(x_data.min(), x_data.max(), 100)
+                        y_range_poly = poly_model(x_range_poly)
+                        fig.add_trace(go.Scatter(x=x_range_poly, y=y_range_poly, mode='lines', name=f"Degree {degree} Fit", line=dict(color=line_color_poly)))
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                    except Exception as e:
+                        st.error(f"Error performing polynomial regression: {e}")
+            
+            elif selected_non_linear == "Exponential Regression":
+                if st.button("Run Exponential Regression"):
+                    x_data = st.session_state.data_df[x_var]
+                    y_data = st.session_state.data_df[y_var]
+
+                    try:
+                        # Define the exponential function to fit: y = a * exp(b * x)
+                        def exp_func(x, a, b):
+                            return a * np.exp(b * x)
+                        
+                        # Fit the exponential model using scipy.optimize.curve_fit
+                        # p0 provides initial guesses for parameters [a, b]
+                        # maxfev increases the number of iterations if convergence is an issue
+                        params, covariance = stats.curve_fit(exp_func, x_data, y_data, p0=[1, 0.1], maxfev=10000)
+                        a, b = params # Unpack fitted parameters
+                        
+                        # Calculate R-squared for the exponential fit
+                        y_pred_exp = exp_func(x_data, a, b) # Predicted y values
+                        ss_res_exp = np.sum((y_data - y_pred_exp)**2) # Residual sum of squares
+                        ss_tot_exp = np.sum((y_data - np.mean(y_data))**2) # Total sum of squares
+                        if ss_tot_exp == 0: # Avoid division by zero
+                            r_squared_exp = 1 if ss_res_exp == 0 else 0
+                        else:
+                            r_squared_exp = 1 - (ss_res_exp / ss_tot_exp)
+                        
+                        # Store results in session state
+                        st.session_state.stat_result = {
+                            "model_type": "Exponential Regression",
+                            "coefficients": {"a": a, "b": b},
+                            "r_squared": r_squared_exp,
+                            "x_var": x_var,
+                            "y_var": y_var,
+                            "equation_str": f"y = {a:.4f} * exp({b:.4f}x)"
+                        }
+                        
+                        # Display the fitted exponential equation and R-squared value
+                        st.markdown(f"**Exponential Equation:** `y = {a:.4f} * exp({b:.4f}x)`")
+                        st.markdown(f"**R-squared (R²):** {r_squared_exp:.4f}")
+                        
+                        # Visualization of the exponential fit
+                        plot_title_exp = st.text_input("Plot Title", value=f"Exponential Regression: {y_var} vs {x_var}", key="exp_title")
+                        x_label_exp = st.text_input("X-axis Label", value=x_var, key="exp_xlabel")
+                        y_label_exp = st.text_input("Y-axis Label", value=y_var, key="exp_ylabel")
+                        marker_color_exp = st.color_picker("Marker Color", value="#1f77b4", key="exp_marker_color")
+                        line_color_exp = st.color_picker("Fit Line Color", value="green", key="exp_line_color")
+
+                        fig = px.scatter(st.session_state.data_df, x=x_var, y=y_var)
+                        fig.update_layout(title=plot_title_exp, xaxis_title=x_label_exp, yaxis_title=y_label_exp)
+                        fig.update_traces(marker=dict(color=marker_color_exp))
+                        
+                        x_range_exp = np.linspace(x_data.min(), x_data.max(), 100)
+                        y_range_exp = exp_func(x_range_exp, a, b)
+                        fig.add_trace(go.Scatter(x=x_range_exp, y=y_range_exp, mode='lines', name="Exponential Fit", line=dict(color=line_color_exp)))
+                        st.plotly_chart(fig, use_container_width=True)
+
+                    except RuntimeError:
+                        st.error("Could not find optimal parameters for exponential fit. Ensure data follows an exponential trend.")
+                    except Exception as e:
+                        st.error(f"Error performing exponential regression: {e}")
+        else:
+            st.warning("Need at least two numeric columns for non-linear regression analysis.")
+
+
 # Step 4: Statistical Significance and Conclusion
-if not st.session_state.data_df.empty and st.session_state.analysis_type and st.session_state.p_value is not None:
+if not st.session_state.data_df.empty and st.session_state.analysis_type and st.session_state.p_value is not None and st.session_state.analysis_type not in ["Non-linear Regression"]:
     st.subheader("Step 4: Statistical Significance and Conclusion")
     
     # Set significance level
